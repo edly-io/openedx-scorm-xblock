@@ -1,3 +1,5 @@
+from io import BytesIO
+from urllib.parse import urlparse
 import json
 import hashlib
 import os
@@ -6,8 +8,10 @@ import re
 import xml.etree.ElementTree as ET
 import zipfile
 
+from django.conf import settings
 from django.core.files import File
 from django.core.files.storage import default_storage
+from django.core.files.uploadedfile import InMemoryUploadedFile
 from django.template import Context, Template
 from django.utils import timezone
 from webob import Response
@@ -23,6 +27,10 @@ def _(text):
 
 
 logger = logging.getLogger(__name__)
+
+# importing directly from settings.XBLOCK_SETTINGS doesn't work here... doesn't have vals from ENV TOKENS yet
+scorm_settings = settings.ENV_TOKENS["XBLOCK_SETTINGS"].get("ScormXBlock", {})
+SCORM_MEDIA_BASE_URL = scorm_settings.get("SCORM_MEDIA_BASE_URL", "/scorm")
 
 
 @XBlock.wants("settings")
@@ -173,6 +181,14 @@ class ScormXBlock(XBlock):
         package_file = request.params["file"].file
         self.update_package_meta(package_file)
 
+        # creating a backup file for the uploaded scorm course as we will lost
+        # control over the content of orignal file, but we need it for further processing
+        # that's why keeping its copy to use it later
+        temp_package_file = InMemoryUploadedFile(BytesIO(package_file.read()),
+                                                 "file",package_file.name,
+                                                 package_file.content_type,
+                                                 package_file.seek(0,2),None)
+        logger.info('Taking backup of Scorm "%s" file', package_file)
         # First, save scorm file in the storage for mobile clients
         if default_storage.exists(self.package_path):
             logger.info('Removing previously uploaded "%s"', self.package_path)
@@ -186,6 +202,12 @@ class ScormXBlock(XBlock):
                 'Removing previously unzipped "%s"', self.extract_folder_base_path
             )
             recursive_delete(self.extract_folder_base_path)
+
+        if package_file.closed:
+            package_file = temp_package_file
+        else:
+            temp_package_file.close()
+
         with zipfile.ZipFile(package_file, "r") as scorm_zipfile:
             for zipinfo in scorm_zipfile.infolist():
                 # Do not unzip folders, only files. In Python 3.6 we will have access to
@@ -195,7 +217,7 @@ class ScormXBlock(XBlock):
                 if not zipinfo.filename.endswith("/"):
                     default_storage.save(
                         os.path.join(self.extract_folder_path, zipinfo.filename),
-                        scorm_zipfile.open(zipinfo.filename),
+                        BytesIO(scorm_zipfile.open(zipinfo.filename).read()),
                     )
 
         try:
@@ -217,7 +239,13 @@ class ScormXBlock(XBlock):
             # is stored in the base folder.
             folder = self.extract_folder_base_path
             logger.warning("Serving SCORM content from old-style path: %s", folder)
-        return default_storage.url(os.path.join(folder, self.index_page_path))
+
+        url = default_storage.url(os.path.join(folder, self.index_page_path))
+        if SCORM_MEDIA_BASE_URL:
+            splitted_url = list(urlparse(url))
+            url = "{base_url}{path}".format(base_url=SCORM_MEDIA_BASE_URL, path=splitted_url[2])
+
+        return url
 
     @property
     def package_path(self):
