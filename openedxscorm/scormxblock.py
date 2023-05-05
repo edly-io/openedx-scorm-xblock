@@ -1,4 +1,3 @@
-from functools import partial
 from urllib.parse import urlparse
 import importlib
 import json
@@ -10,9 +9,12 @@ import re
 import xml.etree.ElementTree as ET
 import zipfile
 import concurrent.futures
+import requests
+import mimetypes
+import boto3
 
-from completion import waffle as completion_waffle
 from django.conf import settings
+from completion import waffle as completion_waffle
 from django.core.files import File
 from django.template import Context, Template
 from django.utils import timezone
@@ -173,6 +175,70 @@ class ScormXBlock(XBlock):
         )
 
     @XBlock.handler
+    def scorm_view(self, request, _suffix):
+        """
+        View for serving SCORM content. It receives a request with the path to the SCORM content to serve, generates a pre-signed
+        URL to access the content in the AWS S3 bucket, retrieves the file content and returns it with the appropriate content
+        type.
+
+        Parameters:
+        ----------
+        request : django.http.request.HttpRequest
+            HTTP request object containing the path to the SCORM content to serve.
+        _suffix : str
+            Unused parameter.
+
+        Returns:
+        -------
+        Response object containing the content of the requested file with the appropriate content type.
+        """
+        path = request.url.split('scorm_view/')[-1]
+        path = re.sub(r"(\?.*|:[\d:]*$)", "", path)
+        file_name = os.path.basename(path)
+        signed_url = self.get_presigned_url(path)
+        if not signed_url:
+            return signed_url
+
+        file_content = requests.get(signed_url).content
+        file_type, _ = mimetypes.guess_type(file_name)
+
+        return Response(
+            file_content, content_type=file_type
+        )
+
+        
+    def get_presigned_url(self, file_path):
+        """
+        Generates a pre-signed URL to access a file in an AWS S3 bucket.
+
+        Parameters:
+        ----------
+        file_path : str
+            The path to the file to access in the S3 bucket.
+
+        Returns:
+        -------
+        str
+            The pre-signed URL for accessing the file.
+        """
+        presigned_url = ""
+        if self.storage.exists(os.path.join(self.extract_folder_path, 
+                                            file_path)):
+            expires_in = 86400
+            # Get a boto3 client instance for S3
+            s3_client = boto3.client('s3',
+                                    aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+                                    aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+                                    region_name=settings.AWS_S3_REGION_NAME)
+            # Generate the presigned URL
+            presigned_url = s3_client.generate_presigned_url('get_object',
+                                                            Params={'Bucket': settings.AWS_STORAGE_BUCKET_NAME,
+                                                                    'Key': os.path.join(self.extract_folder_path, file_path)},
+                                                            ExpiresIn=expires_in)
+            
+        return presigned_url
+    
+    @XBlock.handler
     def studio_submit(self, request, _suffix):
         self.display_name = request.params["display_name"]
         self.width = request.params["width"]
@@ -246,19 +312,7 @@ class ScormXBlock(XBlock):
     def index_page_url(self):
         if not self.package_meta or not self.index_page_path:
             return ""
-        folder = self.extract_folder_path
-        if scorm_storage_instance.exists(
-            os.path.join(self.extract_folder_base_path, self.index_page_path)
-        ):
-            # For backward-compatibility, we must handle the case when the xblock data
-            # is stored in the base folder.
-            folder = self.extract_folder_base_path
-            logger.warning("Serving SCORM content from old-style path: %s", folder)
-        url = scorm_storage_instance.url(os.path.join(folder, self.index_page_path))
-        if SCORM_MEDIA_BASE_URL:
-            splitted_url = list(urlparse(url))
-            url = "{base_url}{path}".format(base_url=SCORM_MEDIA_BASE_URL, path=splitted_url[2])
-
+        url = settings.CMS_BASE + "/xblock/" + str(self.scope_ids.usage_id) + "/handler/scorm_view/" + self.index_page_path
         return url
 
     @property
