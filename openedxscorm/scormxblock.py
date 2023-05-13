@@ -5,6 +5,8 @@ import logging
 import re
 import xml.etree.ElementTree as ET
 import zipfile
+import requests
+import mimetypes
 
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
@@ -12,6 +14,7 @@ from django.db.models import Q
 from django.template import Context, Template
 from django.utils import timezone
 from django.utils.module_loading import import_string
+from urllib.parse import urlparse
 from webob import Response
 import pkg_resources
 from six import string_types
@@ -61,7 +64,6 @@ class ScormXBlock(XBlock, CompletableXBlockMixin):
 
     Note that neither the folder the folder nor the package file are deleted when the
     xblock is removed.
-
     By default, static assets are stored in the default Django storage backend. To
     override this behaviour, you should define a custom storage function. This
     function must take the xblock instance as its first and only argument. For instance,
@@ -201,6 +203,33 @@ class ScormXBlock(XBlock, CompletableXBlockMixin):
             },
         )
         return frag
+
+    @XBlock.handler
+    def assets_proxy(self, request, _suffix):
+        """
+        Proxy view for serving assets. It receives a request with the path to the asset to serve, generates a pre-signed
+        URL to access the content in the AWS S3 bucket, and returns a redirect response to the pre-signed URL.
+
+        Parameters:
+        ----------
+        request : django.http.request.HttpRequest
+            HTTP request object containing the path to the asset to serve.
+        _suffix : str
+            The part of the URL after 'assets_proxy/', i.e., the path to the asset to serve.
+
+        Returns:
+        -------
+        Response object containing the content of the requested file with the appropriate content type.
+        """
+        path = urlparse(_suffix).path
+        file_name = os.path.basename(path)
+        signed_url = self.storage.url(path)
+        file_type, _ = mimetypes.guess_type(file_name)
+        file_content = requests.get(signed_url).content
+
+        return Response(
+            file_content, content_type=file_type
+        )
 
     def studio_view(self, context=None):
         # Note that we cannot use xblockutils's StudioEditableXBlockMixin because we
