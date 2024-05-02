@@ -27,7 +27,7 @@ class ScormXBlockTests(unittest.TestCase):
 
     def test_fields_xblock(self):
         block = self.make_one()
-        self.assertEqual(block.display_name, "Scorm")
+        self.assertEqual(block.display_name, "Scorm module")
         self.assertEqual(block.index_page_url, "")
         self.assertEqual(block.package_meta, {})
         self.assertEqual(block.scorm_version, "SCORM_12")
@@ -36,7 +36,7 @@ class ScormXBlockTests(unittest.TestCase):
         self.assertEqual(block.scorm_data, {})
         self.assertEqual(block.lesson_score, 0)
         self.assertEqual(block.weight, 1)
-        self.assertEqual(block.has_score, False)
+        self.assertEqual(block.has_score, True)
         self.assertEqual(block.icon_class, "video")
         self.assertEqual(block.width, None)
         self.assertEqual(block.height, 450)
@@ -46,18 +46,26 @@ class ScormXBlockTests(unittest.TestCase):
 
         fields = {
             "display_name": "Test Block",
-            "has_score": "True",
+            "has_score": "1",
             "file": None,
             "width": 800,
             "height": 450,
+            "enable_navigation_menu": "1",
+            "navigation_menu_width": 300,
+            "weight": 1.0,
+            "popup_on_launch": "0"
         }
 
-        block.studio_submit(mock.Mock(method="POST", params=fields))
+        block.studio_submit(mock.Mock(method="POST", params=fields), "")
         self.assertEqual(block.display_name, fields["display_name"])
-        self.assertEqual(block.has_score, fields["has_score"])
+        self.assertEqual(block.has_score, True)
         self.assertEqual(block.icon_class, "problem")
-        self.assertEqual(block.width, 800)
-        self.assertEqual(block.height, 450)
+        self.assertEqual(block.width, fields['width'])
+        self.assertEqual(block.height, fields['height'])
+        self.assertEqual(block.enable_navigation_menu, True)
+        self.assertEqual(block.navigation_menu_width, fields['navigation_menu_width'])
+        self.assertEqual(block.weight, fields['weight'])
+        self.assertEqual(block.popup_on_launch, False)
 
     @freeze_time("2018-05-01")
     @mock.patch("openedxscorm.ScormXBlock.update_package_fields")
