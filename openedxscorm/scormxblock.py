@@ -231,13 +231,17 @@ class ScormXBlock(XBlock, CompletableXBlockMixin):
         Response object containing the content of the requested file with the appropriate content type.
         """
         file_name = os.path.basename(suffix)
-        file_path = self.find_file_path(file_name)        
-        file_type, _ = mimetypes.guess_type(file_name)
-        with self.storage.open(file_path) as response:
-            file_content = response.read()
+        try:
+            file_path = self.find_file_path(file_name)
+            file_type, _ = mimetypes.guess_type(file_name)
+            with self.storage.open(file_path) as response:
+                file_content = response.read()
+            return Response(file_content, content_type=file_type)
+        except ScormError:
+            logger.error(f"Could not find the file: {file_name}")
+            return Response(body=f"Could not find the file: {file_name}", status=404)
 
-
-        return Response(file_content, content_type=file_type)
+        
 
     def studio_view(self, context=None):
         # Note that we cannot use xblockutils's StudioEditableXBlockMixin because we
