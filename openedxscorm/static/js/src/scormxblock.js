@@ -3,6 +3,10 @@ function ScormXBlock(runtime, element, settings) {
     // Fullscreen
     function initFullscreen() {
         const xblock = $(element).find(".scorm-xblock").get(0);
+        // Element fullscreen is missing on iPhone Safari and most WebViews: hide the button there.
+        if (!(document.fullscreenEnabled || document.webkitFullscreenEnabled)) {
+            $(xblock).addClass("no-fullscreen");
+        }
         // React to button clicks
         $(element).find("button.enter-fullscreen").on("click", function () {
             requestFullscreen(xblock);
@@ -60,6 +64,12 @@ function ScormXBlock(runtime, element, settings) {
             // Override height and cover entire display in fullscreen
             $(e.target).find(".scorm-panel").css("height", "100%");
             $(e.target).find(".scorm-pane").css("height", "100%");
+            // Landscape where the browser can lock it (Android, and only if the embedding iframe's
+            // sandbox has allow-orientation-lock); elsewhere the theme rotates the content while
+            // the screen is portrait.
+            if (screen.orientation && screen.orientation.lock) {
+                screen.orientation.lock("landscape").catch(function () {});
+            }
         } else {
             $(e.target).removeClass("fullscreen-enabled");
             // Revert back to custom height on fullscreen exit

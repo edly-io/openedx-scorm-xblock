@@ -1,6 +1,7 @@
 {% load i18n %}
 
 <div class="scorm-xblock {% if scorm_xblock.enable_navigation_menu %}navigation-enabled{% endif %}">
+  <h3 class="scorm-title">{{ scorm_xblock.display_name }}</h3>
   {% if package_warnings %}
   <div class="scorm-package-warnings" role="alert">
     {% for package_warning in package_warnings %}
